@@ -4,7 +4,7 @@
 
 # Paper2Slides: From Paper to Presentation in One Click
 
-[![Python](https://img.shields.io/badge/Python-3.10+-FCE7D6.svg)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.12+-FCE7D6.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-C1E5F5.svg)](https://opensource.org/licenses/MIT/)
 [![Feishu](https://img.shields.io/badge/Feishu-Group-E9DBFC?style=flat&logo=wechat&logoColor=white)](./COMMUNICATION.md) 
 [![WeChat](https://img.shields.io/badge/WeChat-Group-C5EAB4?style=flat&logo=wechat&logoColor=white)](./COMMUNICATION.md)
@@ -110,7 +110,7 @@ git clone https://github.com/HKUDS/Paper2Slides.git
 cd Paper2Slides
 
 # Create and activate conda environment
-conda create -n paper2slides python=3.10 -y
+conda create -n paper2slides python=3.12 -y
 conda activate paper2slides
 
 # Install dependencies
