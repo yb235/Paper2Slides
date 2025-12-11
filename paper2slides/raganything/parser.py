@@ -18,6 +18,8 @@ import base64
 import subprocess
 import tempfile
 import logging
+import sys
+import shutil
 from pathlib import Path
 from typing import (
     Dict,
@@ -57,10 +59,51 @@ class Parser:
 
     # Class-level logger
     logger = logging.getLogger(__name__)
+    
+    # Cache for mineru executable path
+    _mineru_executable = None
 
     def __init__(self) -> None:
         """Initialize the base parser."""
         pass
+
+    @staticmethod
+    def _get_mineru_executable() -> str:
+        """
+        Get the path to mineru executable.
+        First tries to find it in the same directory as python executable (venv),
+        then falls back to shutil.which.
+        
+        Returns:
+            Path to mineru executable
+        """
+        if Parser._mineru_executable is not None:
+            return Parser._mineru_executable
+        
+        # Try to find mineru in the same Scripts directory as the Python executable
+        python_dir = Path(sys.executable).parent
+        
+        # Windows: mineru.exe in Scripts
+        if sys.platform == "win32":
+            mineru_path = python_dir / "mineru.exe"
+            if mineru_path.exists():
+                Parser._mineru_executable = str(mineru_path)
+                return Parser._mineru_executable
+        else:
+            # Unix-like: mineru in bin
+            mineru_path = python_dir / "mineru"
+            if mineru_path.exists():
+                Parser._mineru_executable = str(mineru_path)
+                return Parser._mineru_executable
+        
+        # Fallback: try to find in PATH
+        mineru_in_path = shutil.which("mineru")
+        if mineru_in_path:
+            Parser._mineru_executable = mineru_in_path
+            return Parser._mineru_executable
+        
+        # If not found, return "mineru" and let the caller handle the error
+        return "mineru"
 
     @staticmethod
     def convert_office_to_pdf(
@@ -616,8 +659,11 @@ class MineruParser(Parser):
             source: Model source
             vlm_url: When the backend is `vlm-sglang-client`, you need to specify the server_url
         """
+        # Get mineru executable path
+        mineru_cmd = Parser._get_mineru_executable()
+        
         cmd = [
-            "mineru",
+            mineru_cmd,
             "-p",
             str(input_path),
             "-o",
@@ -1209,7 +1255,8 @@ class MineruParser(Parser):
             if platform.system() == "Windows":
                 subprocess_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
-            result = subprocess.run(["mineru", "--version"], **subprocess_kwargs)
+            mineru_cmd = Parser._get_mineru_executable()
+            result = subprocess.run([mineru_cmd, "--version"], **subprocess_kwargs)
             logging.debug(f"MinerU version: {result.stdout.strip()}")
             return True
         except (subprocess.CalledProcessError, FileNotFoundError):

@@ -6,6 +6,7 @@ import sys
 import uuid
 import asyncio
 import logging
+import socket
 from pathlib import Path
 from typing import List, Optional
 
@@ -107,9 +108,18 @@ class ChatResponse(BaseModel):
     session_id: Optional[str] = None
     uploaded_files: Optional[List[dict]] = None
 
+# Serve the frontend
+FRONTEND_DIR = PROJECT_ROOT / "frontend" / "dist"
+if FRONTEND_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIR / "assets")), name="assets")
+
 
 @app.get("/")
 async def root():
+    """Serve the frontend application"""
+    frontend_index = FRONTEND_DIR / "index.html"
+    if frontend_index.exists():
+        return FileResponse(frontend_index)
     return {"message": "Paper2Slides API Server", "status": "running"}
 
 
@@ -750,6 +760,14 @@ async def download_file(filepath: str):
     )
 
 
+def _is_port_in_use(port: int) -> bool:
+    """Return True if port already has a listener."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.5)
+        # Check 0.0.0.0 and loopback to cover common bindings
+        return s.connect_ex(("0.0.0.0", port)) == 0 or s.connect_ex(("127.0.0.1", port)) == 0
+
+
 if __name__ == "__main__":
     import uvicorn
     import sys
@@ -761,13 +779,24 @@ if __name__ == "__main__":
     print(f"Upload directory: {UPLOAD_DIR.absolute()}")
     print(f"Output directory: {OUTPUT_DIR.absolute()}")
     print(f"Server running on http://0.0.0.0:{port}")
-    
-    uvicorn.run(
-        app, 
-        host="0.0.0.0", 
-        port=port,
-        timeout_keep_alive=300,  
-        limit_concurrency=10,    
-        limit_max_requests=1000  
-    )
+
+    if _is_port_in_use(port):
+        print(f"Port {port} is already in use. Stop the existing server or choose another port.")
+        sys.exit(1)
+
+    try:
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=port,
+            timeout_keep_alive=300,
+            limit_concurrency=10,
+            limit_max_requests=1000,
+        )
+    except OSError as exc:
+        # Clear message for address-in-use on Windows/Linux
+        if getattr(exc, "errno", None) in (48, 98, 10048) or "address already in use" in str(exc).lower():
+            print(f"Port {port} is already in use. Stop the existing server or choose another port.")
+            sys.exit(1)
+        raise
 
