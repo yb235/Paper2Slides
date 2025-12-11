@@ -28,6 +28,11 @@ async def run_summary_stage(base_dir: Path, config: Dict) -> Dict:
     
     api_key = os.getenv("RAG_LLM_API_KEY", "")
     base_url = os.getenv("RAG_LLM_BASE_URL")
+    
+    if not api_key:
+        logger.warning("RAG_LLM_API_KEY not set. Falling back to offline markdown summarization.")
+        return _offline_summary(base_dir, config, rag_data, markdown_paths, content_type)
+    
     llm_client = OpenAI(api_key=api_key, base_url=base_url)
     
     logger.info(f"Extracting content from indexed documents ({content_type})...")
@@ -131,3 +136,81 @@ async def run_summary_stage(base_dir: Path, config: Dict) -> Dict:
     logger.info(f"  Saved: {checkpoint_path}")
     return result
 
+
+def _offline_summary(base_dir: Path, config: Dict, rag_data: Dict, markdown_paths: list[str], content_type: str) -> Dict:
+    """Offline fallback summary when no API key is available."""
+    from paper2slides.summary import PaperContent, extract_tables_and_figures, OriginalElements
+    
+    texts = []
+    for md_path in markdown_paths:
+        try:
+            texts.append(Path(md_path).read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning(f"Failed to read markdown {md_path}: {e}")
+    
+    combined = "\n\n".join(texts)
+    title = next(
+        (line.lstrip("# ").strip() for line in combined.splitlines() if line.strip().startswith("#")),
+        Path(markdown_paths[0]).stem if markdown_paths else "Document",
+    )
+    
+    # Simple segmentation of text for key sections
+    paragraphs = [p.strip() for p in combined.split("\n\n") if p.strip()]
+    plain = "\n\n".join(paragraphs)
+    if not plain:
+        plain = "Content not available from parsed markdown."
+    segment_size = max(len(plain) // 4, 300)
+    segments = [plain[i:i + segment_size].strip() for i in range(0, len(plain), segment_size)]
+    while len(segments) < 4:
+        segments.append("")
+    motivation = segments[0]
+    solution = segments[1] or segments[0]
+    results = segments[2]
+    contributions = segments[3]
+    
+    content = PaperContent(
+        paper_info=f"Title: {title}",
+        motivation=motivation,
+        solution=solution,
+        results=results,
+        contributions=contributions,
+        raw_rag_results=rag_data.get("rag_results", {}),
+    )
+    
+    # Extract tables and figures locally
+    all_tables = []
+    all_figures = []
+    base_path = ""
+    
+    for md_path in markdown_paths:
+        origin = extract_tables_and_figures(md_path)
+        all_tables.extend(origin.tables)
+        all_figures.extend(origin.figures)
+        if not base_path and origin.base_path:
+            base_path = origin.base_path
+    
+    origin = OriginalElements(
+        tables=all_tables,
+        figures=all_figures,
+        base_path=base_path
+    )
+    
+    summary_text = content.to_summary()
+    save_text(get_summary_md(base_dir, config), summary_text)
+    
+    result = {
+        "content_type": content_type,
+        "content": content.__dict__,
+        "origin": {
+            "tables": origin.get_table_info(),
+            "figures": origin.get_figure_info(),
+            "base_path": origin.base_path,
+        },
+        "markdown_paths": markdown_paths,
+    }
+    
+    checkpoint_path = get_summary_checkpoint(base_dir, config)
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    save_json(checkpoint_path, result)
+    logger.info(f"  Saved: {checkpoint_path} (offline summary)")
+    return result
