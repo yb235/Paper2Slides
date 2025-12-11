@@ -100,8 +100,10 @@ async def run_generate_stage(base_dir: Path, config_dir: Path, config: Dict) -> 
         import textwrap
         
         images_local = []
-        slide_count = max(1, len(plan_obj.sections))
-        for idx, section in enumerate(plan_obj.sections or [Section(id="s01", title="Summary", section_type="content", content="Offline preview")]):
+        fallback_sections = plan_obj.sections or [
+            Section(id="s01", title="Summary", section_type="content", content="Offline preview")
+        ]
+        for idx, section in enumerate(fallback_sections):
             img = Image.new("RGB", (1280, 720), color="white")
             draw = ImageDraw.Draw(img)
             title = section.title or f"Slide {idx+1}"
@@ -110,7 +112,7 @@ async def run_generate_stage(base_dir: Path, config_dir: Path, config: Dict) -> 
             text = f"{title}\n\n" + "\n".join(wrapped[:12])
             try:
                 font = ImageFont.load_default()
-            except Exception:
+            except OSError:
                 font = None
             draw.multiline_text((40, 40), text, fill="black", font=font, spacing=4)
             

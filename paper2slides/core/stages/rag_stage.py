@@ -6,7 +6,6 @@ import re
 import base64
 import logging
 import asyncio
-import textwrap
 from pathlib import Path
 from typing import Dict, List, Tuple
 from pdfminer.high_level import extract_text
@@ -263,7 +262,7 @@ def _simple_markdown_from_pdf(input_path: str, output_dir: Path) -> List[str]:
         logger.error(f"Fallback text extraction failed: {e}")
         return []
     
-    text = textwrap.dedent(text).strip()
+    text = text.strip()
     if not text:
         text = "No text could be extracted from the document."
     
