@@ -1,6 +1,7 @@
 """
 Generate Stage - Image generation
 """
+import os
 import logging
 from pathlib import Path
 from typing import Dict
@@ -17,7 +18,7 @@ async def run_generate_stage(base_dir: Path, config_dir: Path, config: Dict) -> 
     from paper2slides.generator import GenerationConfig, GenerationInput
     from paper2slides.generator.config import OutputType, PosterDensity, SlidesLength, StyleType
     from paper2slides.generator.content_planner import ContentPlan, Section, TableRef, FigureRef
-    from paper2slides.generator.image_generator import ImageGenerator, save_images_as_pdf
+    from paper2slides.generator.image_generator import ImageGenerator, save_images_as_pdf, GeneratedImage
     
     plan_data = load_json(get_plan_checkpoint(config_dir))
     summary_data = load_json(get_summary_checkpoint(base_dir, config))
@@ -93,9 +94,42 @@ async def run_generate_stage(base_dir: Path, config_dir: Path, config: Dict) -> 
             f.write(img.image_data)
         logger.info(f"  [{index+1}/{total}] Saved: {filepath.name}")
     
-    generator = ImageGenerator()
-    max_workers = config.get("max_workers", 1)
-    images = generator.generate(plan, gen_input, max_workers=max_workers, save_callback=save_image_callback)
+    def generate_placeholder_images(plan_obj: ContentPlan):
+        from io import BytesIO
+        from PIL import Image, ImageDraw, ImageFont
+        import textwrap
+        
+        images_local = []
+        slide_count = max(1, len(plan_obj.sections))
+        for idx, section in enumerate(plan_obj.sections or [Section(id="s01", title="Summary", section_type="content", content="Offline preview")]):
+            img = Image.new("RGB", (1280, 720), color="white")
+            draw = ImageDraw.Draw(img)
+            title = section.title or f"Slide {idx+1}"
+            body = section.content or "No content available."
+            wrapped = textwrap.wrap(body, width=70)
+            text = f"{title}\n\n" + "\n".join(wrapped[:12])
+            try:
+                font = ImageFont.load_default()
+            except Exception:
+                font = None
+            draw.multiline_text((40, 40), text, fill="black", font=font, spacing=4)
+            
+            buf = BytesIO()
+            img.save(buf, format="PNG")
+            data = buf.getvalue()
+            images_local.append(GeneratedImage(section_id=section.id, image_data=data, mime_type="image/png"))
+        return images_local
+    
+    image_api_key = os.getenv("IMAGE_GEN_API_KEY", "")
+    if not image_api_key:
+        logger.info("IMAGE_GEN_API_KEY not set; generating placeholder images.")
+        images = generate_placeholder_images(plan)
+        for idx, img in enumerate(images):
+            save_image_callback(img, idx, len(images))
+    else:
+        generator = ImageGenerator()
+        max_workers = config.get("max_workers", 1)
+        images = generator.generate(plan, gen_input, max_workers=max_workers, save_callback=save_image_callback)
     logger.info(f"  Generated {len(images)} images")
     
     # Generate PDF for slides
@@ -109,4 +143,3 @@ async def run_generate_stage(base_dir: Path, config_dir: Path, config: Dict) -> 
     logger.info(f"Output: {output_subdir}")
     
     return {"output_dir": str(output_subdir), "num_images": len(images)}
-

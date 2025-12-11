@@ -19,6 +19,7 @@ async def run_plan_stage(base_dir: Path, config_dir: Path, config: Dict) -> Dict
         GenerationConfig, GenerationInput, ContentPlanner,
         OutputType, PosterDensity, SlidesLength, StyleType,
     )
+    from paper2slides.generator.content_planner import ContentPlan, Section
     
     summary_data = load_json(get_summary_checkpoint(base_dir, config))
     if not summary_data:
@@ -60,8 +61,54 @@ async def run_plan_stage(base_dir: Path, config_dir: Path, config: Dict) -> Dict
     api_key = os.getenv("RAG_LLM_API_KEY", "")
     base_url = os.getenv("RAG_LLM_BASE_URL")
     
-    planner = ContentPlanner(api_key=api_key, base_url=base_url, model="gpt-4o")
-    plan = planner.plan(gen_input)
+    def build_offline_plan():
+        sections = []
+        
+        def add_section(title: str, text: str, section_type: str = "content"):
+            if not text:
+                return
+            text = text.strip()
+            if not text:
+                return
+            section_id = f"s{len(sections)+1:02}"
+            sections.append(Section(
+                id=section_id,
+                title=title,
+                section_type=section_type,
+                content=text[:1200],
+            ))
+        
+        if content_type == "paper":
+            add_section("Paper Info", getattr(content, "paper_info", ""), "overview")
+            add_section("Motivation", getattr(content, "motivation", ""))
+            add_section("Methodology", getattr(content, "solution", ""))
+            add_section("Results", getattr(content, "results", ""))
+            add_section("Contributions", getattr(content, "contributions", ""), "conclusion")
+        else:
+            add_section("Summary", getattr(content, "content", ""), "content")
+        
+        if not sections:
+            add_section("Summary", "Offline plan generated placeholder content.", "content")
+        
+        return ContentPlan(
+            output_type=gen_input.config.output_type.value,
+            sections=sections,
+            tables_index={t.table_id: t for t in origin.tables},
+            figures_index={f.figure_id: f for f in origin.figures},
+            metadata={
+                "density": gen_input.config.poster_density.value 
+                          if gen_input.config.output_type == OutputType.POSTER else None,
+                "page_range": gen_input.config.get_page_range()
+                             if gen_input.config.output_type == OutputType.SLIDES else None,
+            },
+        )
+    
+    if not api_key:
+        logger.info("RAG_LLM_API_KEY not set; generating offline plan.")
+        plan = build_offline_plan()
+    else:
+        planner = ContentPlanner(api_key=api_key, base_url=base_url, model="gpt-4o")
+        plan = planner.plan(gen_input)
     
     logger.info(f"  Generated {len(plan.sections)} sections:")
     for i, section in enumerate(plan.sections):
@@ -79,4 +126,3 @@ async def run_plan_stage(base_dir: Path, config_dir: Path, config: Dict) -> Dict
     save_json(checkpoint_path, result)
     logger.info(f"  Saved: {checkpoint_path}")
     return result
-
