@@ -15,7 +15,16 @@ logger = logging.getLogger(__name__)
 async def run_summary_stage(base_dir: Path, config: Dict) -> Dict:
     """Stage 2: Extract content from RAG results."""
     from openai import OpenAI
-    from paper2slides.summary import extract_paper, extract_general, extract_tables_and_figures, OriginalElements
+    from paper2slides.summary import (
+        PaperContent,
+        GeneralContent,
+        extract_paper,
+        extract_general,
+        extract_tables_and_figures,
+        OriginalElements,
+        merge_paper_answers,
+        merge_general_answers,
+    )
     from paper2slides.summary.paper import extract_paper_metadata_from_markdown
     
     rag_data = load_json(get_rag_checkpoint(base_dir, config))
@@ -28,51 +37,71 @@ async def run_summary_stage(base_dir: Path, config: Dict) -> Dict:
     
     api_key = os.getenv("RAG_LLM_API_KEY", "")
     base_url = os.getenv("RAG_LLM_BASE_URL")
-    llm_client = OpenAI(api_key=api_key, base_url=base_url)
+    llm_client = OpenAI(api_key=api_key, base_url=base_url) if api_key else None
+    offline_mode = llm_client is None
     
     logger.info(f"Extracting content from indexed documents ({content_type})...")
     
     if content_type == "paper":
-        # Extract paper metadata directly from markdown (bypasses RAG)
-        if markdown_paths:
-            num_files = len(markdown_paths)
-            logger.info(f"  Extracting paper metadata from {num_files} markdown file(s)...")
+        if offline_mode:
+            content = PaperContent(
+                paper_info=merge_paper_answers(rag_results, "paper_info", include_supplements=False),
+                figures=merge_paper_answers(rag_results, "figures", include_supplements=False),
+                tables=merge_paper_answers(rag_results, "tables", include_supplements=False),
+                equations=merge_paper_answers(rag_results, "equations", include_supplements=False),
+                motivation=merge_paper_answers(rag_results, "motivation", include_supplements=False),
+                solution=merge_paper_answers(rag_results, "solution", include_supplements=True),
+                results=merge_paper_answers(rag_results, "results", include_supplements=True),
+                contributions=merge_paper_answers(rag_results, "contributions", include_supplements=False),
+                raw_rag_results=rag_results,
+            )
+            summary_text = content.to_summary()
+        else:
+            # Extract paper metadata directly from markdown (bypasses RAG)
+            if markdown_paths:
+                num_files = len(markdown_paths)
+                logger.info(f"  Extracting paper metadata from {num_files} markdown file(s)...")
+                
+                paper_metadata = await extract_paper_metadata_from_markdown(
+                    markdown_paths=markdown_paths,
+                    llm_client=llm_client,
+                    model="gpt-4o-mini",
+                    max_chars_per_file=3000
+                )
+                
+                # Replace paper_info in RAG results with direct extraction
+                metadata_result = {
+                    "query": "List the paper title, author names and their institutional affiliations.",
+                    "answer": paper_metadata,
+                    "mode": "direct_markdown_extraction",
+                    "success": True,
+                }
+                rag_results["paper_info"] = [metadata_result]
+                logger.info("  Paper metadata extracted successfully")
             
-            paper_metadata = await extract_paper_metadata_from_markdown(
-                markdown_paths=markdown_paths,
+            content = await extract_paper(
+                rag_results=rag_results,
                 llm_client=llm_client,
                 model="gpt-4o-mini",
-                max_chars_per_file=3000
+                parallel=True,
+                max_concurrency=5,
             )
-            
-            # Replace paper_info in RAG results with direct extraction
-            metadata_result = {
-                "query": "List the paper title, author names and their institutional affiliations.",
-                "answer": paper_metadata,
-                "mode": "direct_markdown_extraction",
-                "success": True,
-            }
-            rag_results["paper_info"] = [metadata_result]
-            logger.info("  Paper metadata extracted successfully")
-        
-        content = await extract_paper(
-            rag_results=rag_results,
-            llm_client=llm_client,
-            model="gpt-4o-mini",
-            parallel=True,
-            max_concurrency=5,
-        )
-        summary_text = content.to_summary()
+            summary_text = content.to_summary()
     else:
         all_results = []
         for items in rag_results.values():
             all_results.extend(items)
-        content = await extract_general(
-            rag_results=all_results,
-            llm_client=llm_client,
-            model="gpt-4o-mini",
-        )
-        summary_text = content.content
+        if offline_mode:
+            merged = merge_general_answers(all_results)
+            content = GeneralContent(content=merged, raw_rag_results=all_results)
+            summary_text = merged
+        else:
+            content = await extract_general(
+                rag_results=all_results,
+                llm_client=llm_client,
+                model="gpt-4o-mini",
+            )
+            summary_text = content.content
     
     logger.info(f"  Summary: {len(summary_text)} chars")
     
@@ -130,4 +159,3 @@ async def run_summary_stage(base_dir: Path, config: Dict) -> Dict:
     save_json(checkpoint_path, result)
     logger.info(f"  Saved: {checkpoint_path}")
     return result
-
