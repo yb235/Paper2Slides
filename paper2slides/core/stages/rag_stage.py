@@ -271,6 +271,10 @@ async def run_rag_stage(base_dir: Path, config: Dict) -> Dict:
     
     content_type = config.get("content_type", "paper")
     fast_mode = config.get("fast_mode", True)
+    
+    if not os.getenv("RAG_LLM_API_KEY") and not fast_mode:
+        logger.warning("RAG_LLM_API_KEY not set. Falling back to fast parse-only mode without RAG queries.")
+        fast_mode = True
     path = Path(input_path)
     
     # Determine storage directory
@@ -316,28 +320,32 @@ async def run_rag_stage(base_dir: Path, config: Dict) -> Dict:
         logger.info(f"  Found {len(markdown_paths)} markdown file(s)")
         
         # Use OpenAI to query markdown content directly
-        logger.info("")
-        logger.info(f"Running queries with GPT-4o and images ({content_type})...")
-        
-        from openai import OpenAI
-        
         api_key = os.getenv("RAG_LLM_API_KEY", "")
         base_url = os.getenv("RAG_LLM_BASE_URL")
-        client = OpenAI(api_key=api_key, base_url=base_url)
         
-        # Execute queries (direct GPT-4o with images in original positions)
-        if content_type == "paper":
-            rag_results = await _run_fast_queries_by_category(
-                client=client,
-                markdown_content="",  # Not used anymore, content is processed inside
-                markdown_paths=markdown_paths,
-                queries_by_category=RAG_PAPER_QUERIES,
-            )
+        if not api_key:
+            logger.warning("RAG_LLM_API_KEY not set. Skipping LLM queries and returning parsed markdown only.")
+            rag_results = {}
         else:
-            raise ValueError("Fast mode currently only supports content_type='paper'")
-        
-        total = sum(len(r) for r in rag_results.values())
-        logger.info(f"  Completed {total} queries")
+            logger.info("")
+            logger.info(f"Running queries with GPT-4o and images ({content_type})...")
+            
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key, base_url=base_url)
+            
+            # Execute queries (direct GPT-4o with images in original positions)
+            if content_type == "paper":
+                rag_results = await _run_fast_queries_by_category(
+                    client=client,
+                    markdown_content="",  # Not used anymore, content is processed inside
+                    markdown_paths=markdown_paths,
+                    queries_by_category=RAG_PAPER_QUERIES,
+                )
+            else:
+                raise ValueError("Fast mode currently only supports content_type='paper'")
+            
+            total = sum(len(r) for r in rag_results.values())
+            logger.info(f"  Completed {total} queries")
     
     # ========== NORMAL MODE: Full RAG pipeline ==========
     else:
