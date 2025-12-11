@@ -104,6 +104,7 @@ Examples from <a href="https://arxiv.org/abs/2512.02556">DeepSeek-V3.2: Pushing 
 - [🏗️ Paper2Slides Framework](#%EF%B8%8F-paper2slides-framework)
 - [🔧 Configuration](#%EF%B8%8F-configuration)
 - [📁 Code Structure](#-code-structure)
+- [📚 Documentation](#-documentation)
 
 ---
 
@@ -339,6 +340,27 @@ Paper2Slides/
 ```
 
 </details>
+
+---
+
+## 📚 Documentation
+
+**Comprehensive documentation is available in the [`docs/`](./docs/) directory!**
+
+For first-time users and developers, we've created detailed guides covering:
+
+- **[Overview](./docs/01-overview.md)** - Introduction, features, and key concepts
+- **[Architecture](./docs/02-architecture.md)** - System design and components
+- **[Pipeline Stages](./docs/03-pipeline-stages.md)** - Deep dive into the 4-stage pipeline
+- **[API Reference](./docs/04-api-reference.md)** - REST API documentation
+- **[CLI Usage](./docs/05-cli-usage.md)** - Command-line interface guide
+- **[Code Structure](./docs/06-code-structure.md)** - Codebase organization
+- **[Workflow](./docs/07-workflow.md)** - Data flow and workflows
+- **[Configuration](./docs/08-configuration.md)** - Setup and configuration
+- **[Development Guide](./docs/09-development-guide.md)** - Contributing to Paper2Slides
+- **[Troubleshooting](./docs/10-troubleshooting.md)** - Common issues and solutions
+
+👉 **Start here**: [Documentation README](./docs/README.md)
 
 ---
 
